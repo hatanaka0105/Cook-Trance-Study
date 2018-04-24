@@ -1,0 +1,81 @@
+
+//Globals
+
+Texture2D shaderTexture;
+SamplerState SampleType;
+
+cbuffer LightBuffer
+{
+    float4 ambientColor;
+    float4 diffuseColor;
+    float3 lightDirection;
+    float roughness;
+	float FresnelReflectance;
+};
+
+//TypeDefs
+
+struct PixelInputType
+{
+    float4 position : SV_POSITION;
+    float2 tex : TEXCOORD0;
+    float3 normal : NORMAL;
+    float3 viewDirection : TEXCOORD1;
+};
+
+//PixelShader
+
+float4 LightPixelShader(PixelInputType input): SV_TARGET
+{
+    float4 textureColor;
+    float3 lightDir;
+    float4 color;
+	float3 reflection;
+    float4 specular;
+
+	textureColor = shaderTexture.Sample(SampleType,input.tex);
+
+	// Set the default output color to the ambient light value for all pixels.
+    color = saturate(ambientColor);
+
+	lightDir = -lightDirection;
+
+	float3 lightDirNormal = normalize(lightDir.xyz);
+
+	float3 viewDirNormal = input.viewDirection;
+
+	float3 halfVector = normalize(lightDirNormal + viewDirNormal);
+
+	//GGX
+	float HdotN = saturate(dot(halfVector,input.normal));
+	float Roughness = saturate(roughness);
+	float alpha = roughness * roughness * roughness * roughness;
+	float t = ((HdotN * HdotN) * (alpha - 1.0) + 1.0);
+	float PI = 3.1415926535897;
+
+	float D = alpha / (PI * t * t);
+
+	//Fresnel
+	float VdotH = saturate(dot(viewDirNormal,halfVector));
+	float F0 = saturate(FresnelReflectance);
+	float F = pow(1.0 - VdotH, 5.0);
+	F *= (1.0 - F0);
+	F += F0;
+	
+	//cook trance
+	float NdotH = saturate(dot(input.normal, halfVector));
+	float NdotL = saturate(dot(input.normal, lightDirNormal));
+	float NdotV = saturate(dot(input.normal, viewDirNormal));
+
+	float NH2 = 2.0 * NdotH;
+	float g1 = (NH2 * NdotV) / VdotH;
+	float g2 = (NH2 * NdotL) / VdotH;
+	float G = min(1.0, min(g1, g2));
+
+	float specularReflection = (D * F * G) / (4.0 * NdotV * NdotL + 0.000001);
+	float3 diffuseReflection = color.xyz * NdotL;
+
+	color = saturate(color * textureColor);
+
+	return float4(color + specularReflection + diffuseReflection, 1.0);
+}
